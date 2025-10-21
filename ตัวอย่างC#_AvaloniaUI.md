@@ -1030,3 +1030,224 @@ dotnet run
 - **Beautiful UI**
 
 ต้องการให้ผมสร้าง **ตัวอย่างโค้ดเต็มๆ** ของส่วนไหนเพิ่มเติมไหมครับ? หรือมีระบบอื่นที่สนใจอยากทำ? 🚀
+
+ได้ครับ ด้านล่างคือ “แผนผังการเชื่อมโยงไฟล์และการไหลของข้อมูล” สำหรับโปรเจคตัวอย่าง Desktop App (Avalonia + MVVM) ที่เราเพิ่งคุยกัน (MyPOSSystem) เพื่อให้เห็นภาพว่าไฟล์ไหนเชื่อมกับไฟล์ไหน และไฟล์ไหนส่งค่า/เรียกใช้ใครบ้าง
+
+หมายเหตุ:
+- เส้นทึบ = เรียกใช้งานโดยตรง (method call / DI)
+- เส้นประ = Binding/Resolve อัตโนมัติ (เช่น DataBinding, ViewLocator, Resource)
+
+ภาพรวมเลเยอร์ (Layer Overview)
+```mermaid
+graph LR
+  subgraph Bootstrap
+    Program["Program.cs"]
+    AppCS["App.axaml.cs"]
+    AppXAML["App.axaml"]
+  end
+
+  subgraph Shell
+    MainView["Views/MainWindow.axaml"]
+    MainCodeBehind["Views/MainWindow.axaml.cs"]
+    MainVM["ViewModels/MainWindowViewModel.cs"]
+    ViewLocator["ViewLocator.cs"]
+  end
+
+  subgraph Modules
+    AuthVM["Auth/*ViewModel.cs"]
+    DashboardVM["Dashboard/DashboardViewModel.cs"]
+    ProductsVM["Products/ProductListViewModel.cs"]
+    SalesVM["Sales/SalesViewModel.cs"]
+    ReportsVM["Reports/*ViewModel.cs"]
+  end
+
+  subgraph UI
+    AuthView["Auth/*View.axaml"]
+    DashboardView["Dashboard/DashboardView.axaml"]
+    ProductListView["Products/ProductListView.axaml"]
+    SalesView["Sales/SalesView.axaml"]
+    ReportViews["Reports/*View.axaml"]
+    Styles["Styles/*.axaml"]
+    Controls["Controls/*.axaml"]
+    Converters["Converters/*.cs"]
+    Dialogs["Dialogs/*.axaml"]
+  end
+
+  subgraph Services
+    IAuth["Services/Interfaces/IAuthService.cs"]
+    IProduct["Services/Interfaces/IProductService.cs"]
+    ISales["Services/Interfaces/ISalesService.cs"]
+    IReport["Services/Interfaces/IReportService.cs"]
+    AuthSvc["Services/AuthService.cs"]
+    ProductSvc["Services/ProductService.cs"]
+    SalesSvc["Services/SalesService.cs"]
+    ReportSvc["Services/ReportService.cs"]
+    PrintSvc["Services/PrintService.cs"]
+    Helpers["Helpers/*.cs"]
+  end
+
+  subgraph Data
+    RepoInt["Data/Repositories/IRepository.cs"]
+    Repos["Data/Repositories/*Repository.cs"]
+    DbContext["Data/AppDbContext.cs"]
+    Migrations["Data/Migrations/*"]
+    DB[("pos_database.db (SQLite)")]
+  end
+
+  Program --> AppCS
+  AppCS --> AppXAML
+  AppCS -.Global Styles/Resources.-> AppXAML
+  AppCS --> MainView
+  MainView --> MainCodeBehind
+  MainCodeBehind --> MainVM
+  MainVM -.resolve via.-> ViewLocator
+  MainVM --> AuthVM
+  MainVM --> DashboardVM
+  MainVM --> ProductsVM
+  MainVM --> SalesVM
+  MainVM --> ReportsVM
+
+  AuthView -.DataContext Binding.-> AuthVM
+  DashboardView -.Binding.-> DashboardVM
+  ProductListView -.Binding.-> ProductsVM
+  SalesView -.Binding.-> SalesVM
+  ReportViews -.Binding.-> ReportsVM
+  Styles -.used by.-> AuthView
+  Styles -.used by.-> ProductListView
+  Styles -.used by.-> SalesView
+  Controls -.used by.-> ProductListView
+  Converters -.used by.-> ProductListView
+  Dialogs -.invoked by.-> ProductsVM
+
+  ProductsVM --> IProduct
+  SalesVM --> ISales
+  ReportsVM --> IReport
+  AuthVM --> IAuth
+
+  IProduct --> ProductSvc
+  ISales --> SalesSvc
+  IReport --> ReportSvc
+  IAuth --> AuthSvc
+  Helpers -.utility.-> ProductSvc
+  Helpers -.utility.-> SalesSvc
+  Helpers -.utility.-> AuthSvc
+
+  ProductSvc --> RepoInt
+  RepoInt --> Repos
+  Repos --> DbContext
+  DbContext --> DB
+  Migrations --> DbContext
+```
+
+ผังการไหลแบบลงรายละเอียด: โมดูลสินค้า (Products)
+- โฟกัส: ProductListView.axaml ↔ ProductListViewModel.cs → ProductService.cs → AppDbContext.cs → Database
+```mermaid
+sequenceDiagram
+  participant View as ProductListView.axaml
+  participant VM as ProductListViewModel.cs
+  participant Svc as ProductService.cs
+  participant Repo as *Repository.cs
+  participant Db as AppDbContext.cs
+  participant DB as pos_database.db
+
+  Note over View,VM: Binding แบบสองทาง (SearchKeyword, SelectedProduct)
+  View->>VM: Click Delete (DeleteProductCommand)
+  VM->>Svc: DeleteProductAsync(productId)
+  Svc->>Repo: Delete (soft delete / IsActive=false)
+  Repo->>Db: SaveChanges()
+  Db-->>DB: write
+  DB-->>Db: ok
+  Db-->>Repo: success
+  Repo-->>Svc: success
+  Svc-->>VM: true
+  VM->>VM: Products.Remove(SelectedProduct)
+  VM-->>View: Update ObservableCollection
+  Note over View: DataGrid รีเฟรชอัตโนมัติจาก Binding
+```
+
+ผังการไหล: การนำทาง (Navigation) ผ่าน MainWindow
+```mermaid
+sequenceDiagram
+  participant ShellView as MainWindow.axaml
+  participant ShellVM as MainWindowViewModel.cs
+  participant Locator as ViewLocator.cs
+  participant ProductsVM as ProductListViewModel.cs
+  participant ProductsView as ProductListView.axaml
+
+  ShellView->>ShellVM: Click "📦 จัดการสินค้า"
+  ShellVM->>ShellVM: CurrentPage = new ProductListViewModel(...)
+  ShellView->>Locator: Resolve View for ProductListViewModel
+  Locator-->>ShellView: ProductListView instance
+  ShellView->>ProductsView: ContentControl.Content = ProductListView
+  ProductsView-->>ProductsVM: DataContext = ProductListViewModel
+```
+
+แผนผัง Mapping ไฟล์ → เรียกใช้/ส่งค่าไปที่ใดบ้าง
+- Program.cs
+  - เรียก App.axaml.cs (เริ่มต้นแอป)
+- App.axaml
+  - ให้ Resources/Styles/Theme แก่ทุก View
+- App.axaml.cs
+  - สร้างและตั้ง MainWindow.axaml
+  - ลงทะเบียน ViewLocator
+- Views/MainWindow.axaml(.cs)
+  - ใช้ MainWindowViewModel เป็น DataContext
+  - แสดง CurrentPage ผ่าน ContentControl
+- ViewModels/MainWindowViewModel.cs
+  - ส่งคำสั่งนำทางไปยัง ViewModel ของแต่ละโมดูล (Products/Sales/Reports/…)
+  - อัปเดต CurrentPage, CurrentPageTitle
+- ViewLocator.cs
+  - แมป [Some]ViewModel → [Some]View ที่ชื่อสอดคล้องกัน
+- Views/*/*.axaml
+  - Binding properties/commands ไปยัง ViewModel คู่กัน
+  - ใช้ Styles/*.axaml, Controls/*.axaml, Converters/*.cs
+- ViewModels/*/*.cs
+  - เรียกใช้ Services ผ่าน Interface (DI)
+  - เปิด Dialogs (ยืนยัน/แจ้งเตือน/ฟอร์ม) ผ่าน service หรือ Interaction
+  - อัปเดต ObservableCollection/Properties → วิ่งกลับไป View ผ่าน Binding
+- Services/Interfaces/*.cs
+  - สัญญา (Contract) ที่ ViewModel อ้างถึง
+- Services/*.cs
+  - ตรรกะธุรกิจ (Business Logic)
+  - เรียกใช้ Repositories/AppDbContext เพื่อเข้าถึงข้อมูล
+  - ใช้ Helpers/*.cs (เช่น Validation, Hash, Export)
+- Data/Repositories/*.cs
+  - ดึง/บันทึกข้อมูลผ่าน AppDbContext
+- Data/AppDbContext.cs
+  - กำหนด Entities/Relations/Migrations
+  - เชื่อมต่อ Database (SQLite)
+- Converters/*.cs
+  - ถูกอ้างถึงใน XAML เพื่อแปลงค่า (เช่น bool→Visibility, decimal→string)
+- Controls/*.axaml
+  - Custom UI components นำไปใช้ใน Views
+- Styles/*.axaml
+  - กติกา UI ทั่วระบบ (สี/ตัวอักษร/ปุ่ม/ตาราง)
+- Dialogs/*.axaml
+  - หน้าต่างย่อย เรียกจาก ViewModel เพื่อถาม/แจ้งผู้ใช้
+
+เส้นทางการส่งค่า/ข้อมูลที่พบบ่อย
+- สองทาง (Two-way Binding): TextBox.Text ↔ ViewModel.Property (เช่น SearchKeyword)
+- ทางเดียว ViewModel→View: ObservableCollection, Readonly props → DataGrid/ListView
+- ทางเดียว View→ViewModel: Button.Command → ICommand ใน ViewModel
+- ViewModel → Service: เรียก method (async/await) พร้อมพารามิเตอร์ (เช่น id, model)
+- Service → Repository/DbContext: สร้าง/แก้ไข/ลบ/ค้นหา Entities
+- Repository/DbContext → Service → ViewModel: คืนค่าผลลัพธ์/Models
+- ViewModel → View: อัปเดต State/Collection → View รีเฟรชอัตโนมัติจาก Binding
+- ViewModel → Dialogs: เปิด Confirm/Message/Loading และรับผลลัพธ์กลับ
+
+ตัวอย่าง Binding/Command ที่ชี้ชัดไฟล์ต่อไฟล์
+- Views/Products/ProductListView.axaml
+  - TextBox.Text → ViewModels/Products/ProductListViewModel.SearchKeyword (two-way)
+  - DataGrid.ItemsSource ← ProductListViewModel.Products
+  - Button.Command → ProductListViewModel.DeleteProductCommand
+  - IsEnabled ← SelectedProduct != null (ผ่าน Converter)
+- ViewModels/Products/ProductListViewModel.cs
+  - เรียก Services/IProductService.SearchProductsAsync/ DeleteProductAsync
+  - อัปเดต Products/SelectedProduct/IsLoading
+- Services/ProductService.cs
+  - เรียก Data/Repositories/ProductRepository.cs หรือ DbContext.Products
+  - บันทึก DB ผ่าน AppDbContext.SaveChangesAsync
+- Data/AppDbContext.cs
+  - แมป Product, Category, Sale, SaleItem … เข้ากับตารางใน pos_database.db
+
+อยากให้ผมวาดแผนผังเจาะลึกโมดูลอื่น (เช่น Sales/Checkout หรือ Reports + Charts) เพิ่มเติมไหมครับ? หรือถ้าคุณมี repo จริง ลองส่งลิงก์มาได้เลย เดี๋ยวผมสแกนโครงสร้างแล้ววาดผังตามโปรเจคจริงให้แบบอัตโนมัติครับ
