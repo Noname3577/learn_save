@@ -1,3 +1,25 @@
+namespace MyModernApp.ViewModels;
+
+public class MainWindowViewModel : ViewModelBase
+{
+    public string Greeting { get; } = "Welcome to Avalonia!";
+
+    private string _userInput = "Hooooo";
+    public string UserInputOne
+    {
+        get => _userInput;
+        set 
+        { 
+            if (_userInput != value)
+            {
+                _userInput = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+}
+
+
 GitHub Copilot: ให้ฉันอธิบายโค้ดในไฟล์ MainWindowViewModel.cs แบบละเอียด:
 
 ```csharp
